@@ -213,12 +213,28 @@ def stat_bar(val, cls, label):
         f'<span style="color:var(--text);font-size:11px;width:24px;text-align:right;">{val}</span></div>'
     )
 
+
+def calc_monster_attack(monster: dict) -> tuple[int, str]:
+    """モンスターの反撃ダメージとメッセージを返す。タグに応じて挙動が変わる。"""
+    base = random.randint(5, 12) + monster["agility"] // 15
+    tags = monster.get("tags") or []
+    if "Burst" in tags and random.random() < 0.3:
+        dmg = int(base * 1.8)
+        return dmg, f"💥 バーストアタック！ {dmg} ダメージ！"
+    if "Grind" in tags or "Endurance" in tags:
+        base += monster["stamina"] // 20
+    return base, f"🗡️ 反撃！ {base} ダメージ！"
+
+
 # ─── セッション初期化 ─────────────────────────────────────
 
 for k, v in {
     "battle_monster_id": None, "battle_task_id": None,
     "battle_hp": 0, "battle_log": [], "battle_phase": "idle",
     "switch_to_battle": False,
+    "player_hp": 100, "player_max_hp": 100,
+    "skill_cooldown": 0,
+    "combo_count": 0,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -272,7 +288,7 @@ with st.sidebar:
 # ─── バトル中はタブを出さずバトル画面を全面表示 ──────────
 
 _in_battle = (
-    st.session_state.battle_phase in ("fighting", "victory")
+    st.session_state.battle_phase in ("fighting", "victory", "defeat")
     and st.session_state.battle_monster_id
 )
 
@@ -286,13 +302,19 @@ if _in_battle:
         st.session_state.battle_phase = "idle"
         st.rerun()
     else:
-        current_hp = st.session_state.battle_hp
-        max_hp     = monster["max_hp"]
-        tags       = monster.get("tags") or []
+        current_hp   = st.session_state.battle_hp
+        max_hp       = monster["max_hp"]
+        player_hp    = st.session_state.player_hp
+        player_max   = st.session_state.player_max_hp
+        cooldown     = st.session_state.skill_cooldown
+        combo        = st.session_state.combo_count
+        tags         = monster.get("tags") or []
 
         if st.session_state.battle_phase == "fighting":
+            # ── HP表示（モンスター / プレイヤー）──────────────
             cm2, ci = st.columns([1, 1])
             with cm2:
+                combo_label = f'<span style="color:var(--gold);font-family:Cinzel,serif;font-size:13px;">x{combo} COMBO</span>' if combo > 0 else ""
                 st.markdown(f"""
                 <div class="parchment" style="text-align:center;padding:30px;">
                     <div style="color:var(--gold);font-family:Cinzel,serif;font-size:13px;letter-spacing:3px;margin-bottom:16px;">— ENEMY —</div>
@@ -300,6 +322,10 @@ if _in_battle:
                     <div style="color:var(--gold2);font-family:Cinzel,serif;font-size:18px;margin:12px 0;">{monster['name']}</div>
                     <div style="color:{RARITY_COLOR[monster['rarity']]};font-family:Cinzel,serif;font-size:12px;margin-bottom:12px;">★ {monster['rarity']}</div>
                     {hp_bar(current_hp, max_hp)}
+                    <hr style="border-color:var(--border);margin:16px 0 12px;">
+                    <div style="color:var(--gold);font-family:Cinzel,serif;font-size:13px;letter-spacing:3px;margin-bottom:8px;">— PLAYER —</div>
+                    {hp_bar(player_hp, player_max)}
+                    <div style="margin-top:8px;">{combo_label}</div>
                 </div>""", unsafe_allow_html=True)
             with ci:
                 st.markdown(f"""
@@ -316,34 +342,82 @@ if _in_battle:
 
             st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
             ba, bb, bc = st.columns(3)
+
             with ba:
                 if st.button("⚔️ 通常攻撃", use_container_width=True):
-                    dmg = random.randint(8, 18) + monster["agility"] // 10
-                    st.session_state.battle_hp = max(0, current_hp - dmg)
-                    st.session_state.battle_log.append(f"⚔️ {dmg} ダメージ！")
-                    if st.session_state.battle_hp <= 0:
+                    # コンボ加算（上限5）
+                    new_combo = min(combo + 1, 5)
+                    combo_mult = 1.0 + new_combo * 0.15
+                    # クリティカル判定（基本20%+コンボ補正）
+                    crit_chance = 0.20 + new_combo * 0.05
+                    is_crit = random.random() < crit_chance
+                    base = random.randint(8, 18) + monster["agility"] // 10
+                    dmg = int(base * combo_mult * (2.0 if is_crit else 1.0))
+                    # ログ生成
+                    if is_crit:
+                        msg = f"💥 CRITICAL! ⚔️ {dmg} ダメージ！（x{new_combo} COMBO）"
+                    elif new_combo > 1:
+                        msg = f"⚔️ {dmg} ダメージ！（x{new_combo} COMBO +{int((combo_mult-1)*100)}%）"
+                    else:
+                        msg = f"⚔️ {dmg} ダメージ！"
+                    # モンスターHP更新
+                    new_mon_hp = max(0, current_hp - dmg)
+                    st.session_state.battle_hp    = new_mon_hp
+                    st.session_state.combo_count  = new_combo
+                    st.session_state.skill_cooldown = max(0, cooldown - 1)
+                    st.session_state.battle_log.append(msg)
+                    if new_mon_hp <= 0:
                         st.session_state.battle_phase = "victory"
+                    else:
+                        # 反撃処理
+                        c_dmg, c_msg = calc_monster_attack(monster)
+                        new_player_hp = max(0, player_hp - c_dmg)
+                        st.session_state.player_hp = new_player_hp
+                        st.session_state.battle_log.append(c_msg)
+                        if new_player_hp <= 0:
+                            st.session_state.battle_phase = "defeat"
                     st.rerun()
+
             with bb:
-                if st.button("🔥 必殺技", use_container_width=True):
-                    dmg = random.randint(25, 45) + monster["stamina"] // 5
-                    st.session_state.battle_hp = max(0, current_hp - dmg)
-                    st.session_state.battle_log.append(f"🔥 必殺！ {dmg} ダメージ！！")
-                    if st.session_state.battle_hp <= 0:
+                skill_label = f"🔥 必殺技（残{cooldown}T）" if cooldown > 0 else "🔥 必殺技"
+                if st.button(skill_label, use_container_width=True, disabled=(cooldown > 0)):
+                    # 必殺技はコンボリセット
+                    crit_chance = 0.20
+                    is_crit = random.random() < crit_chance
+                    base = random.randint(25, 45) + monster["stamina"] // 5
+                    dmg = int(base * (2.0 if is_crit else 1.0))
+                    msg = f"💥 CRITICAL! 🔥 {dmg} ダメージ！！" if is_crit else f"🔥 必殺！ {dmg} ダメージ！！"
+                    new_mon_hp = max(0, current_hp - dmg)
+                    st.session_state.battle_hp      = new_mon_hp
+                    st.session_state.skill_cooldown = 3
+                    st.session_state.combo_count    = 0
+                    st.session_state.battle_log.append(msg)
+                    if new_mon_hp <= 0:
                         st.session_state.battle_phase = "victory"
+                    else:
+                        # 反撃処理
+                        c_dmg, c_msg = calc_monster_attack(monster)
+                        new_player_hp = max(0, player_hp - c_dmg)
+                        st.session_state.player_hp = new_player_hp
+                        st.session_state.battle_log.append(c_msg)
+                        if new_player_hp <= 0:
+                            st.session_state.battle_phase = "defeat"
                     st.rerun()
+
             with bc:
                 if st.button("🏳️ 撤退", use_container_width=True):
                     st.session_state.battle_monster_id = None
-                    st.session_state.battle_phase = "idle"
+                    st.session_state.battle_phase      = "idle"
+                    st.session_state.combo_count       = 0
+                    st.session_state.skill_cooldown    = 0
                     st.rerun()
 
             if st.session_state.battle_log:
                 log_html = "".join(
-                    f'<div style="color:var(--dim);font-size:12px;padding:2px 0;border-bottom:1px solid #1a1408;">{e}</div>'
-                    for e in reversed(st.session_state.battle_log[-5:])
+                    f'<div style="color:{"#f0d070" if "CRITICAL" in e else "#e07070" if "反撃" in e or "バースト" in e else "var(--dim)"};font-size:12px;padding:2px 0;border-bottom:1px solid #1a1408;">{e}</div>'
+                    for e in reversed(st.session_state.battle_log[-6:])
                 )
-                st.markdown(f'<div class="parchment" style="max-height:120px;overflow:auto;">{log_html}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="parchment" style="max-height:140px;overflow:auto;">{log_html}</div>', unsafe_allow_html=True)
 
         elif st.session_state.battle_phase == "victory":
             st.markdown(f"""
@@ -379,6 +453,24 @@ if _in_battle:
                     st.session_state.battle_monster_id = None
                     st.session_state.battle_phase = "idle"
                     st.rerun()
+
+        elif st.session_state.battle_phase == "defeat":
+            st.markdown(f"""
+            <div class="parchment" style="text-align:center;padding:40px;border-color:#8b0000;">
+                <div style="font-size:72px;margin-bottom:12px;">💀</div>
+                <div style="font-family:Cinzel,serif;font-size:28px;color:#e74c3c;letter-spacing:4px;margin-bottom:8px;">DEFEAT</div>
+                <div style="font-size:15px;color:var(--dim);margin-bottom:20px;">
+                    体力が尽きた… <strong style="color:var(--text);">{monster['name']}</strong> は逃げ去った。
+                </div>
+                <div style="font-size:60px;margin:10px 0;opacity:0.5;">{monster['emoji']}</div>
+            </div>""", unsafe_allow_html=True)
+            if st.button("📜 依頼書に戻る", use_container_width=True):
+                st.session_state.battle_monster_id = None
+                st.session_state.battle_phase      = "idle"
+                st.session_state.player_hp         = 100
+                st.session_state.combo_count       = 0
+                st.session_state.skill_cooldown    = 0
+                st.rerun()
 
 else:
     tab1, tab2, tab3, tab4 = st.tabs(["📜 依頼書", "⚔️ バトル", "📚 図鑑", "🎮 パーティ"])
@@ -463,6 +555,10 @@ else:
                         st.session_state.battle_hp         = monster["max_hp"]
                         st.session_state.battle_log        = []
                         st.session_state.battle_phase      = "fighting"
+                        st.session_state.player_hp         = 100
+                        st.session_state.player_max_hp     = 100
+                        st.session_state.skill_cooldown    = 0
+                        st.session_state.combo_count       = 0
                         st.rerun()
                 st.markdown('<hr style="border-color:#1a1408;margin:4px 0;">', unsafe_allow_html=True)
 
