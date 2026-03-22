@@ -3,21 +3,17 @@ Guild Quest — RPG Task Manager
 Supabase 永続化対応版
 
 必要ライブラリ:
-pip install streamlit supabase python-dotenv
+pip install streamlit supabase
 
-.env (または Streamlit Secrets) に以下を設定:
-SUPABASE_URL=https://xxxx.supabase.co
-SUPABASE_KEY=your-anon-key
+Streamlit Cloud の Secrets に以下を設定:
+SUPABASE_URL = "https://xxxx.supabase.co"
+SUPABASE_KEY = "your-anon-key"
 """
 
 import streamlit as st
 import random
-import os
 import uuid
-from dotenv import load_dotenv
 from supabase import create_client, Client
-
-load_dotenv()
 
 # ─── ページ設定 ────────────────────────────────────────────
 
@@ -32,10 +28,10 @@ st.set_page_config(
 
 @st.cache_resource
 def get_supabase() -> Client:
-    url = st.secrets.get("SUPABASE_URL", os.getenv("SUPABASE_URL", ""))
-    key = st.secrets.get("SUPABASE_KEY", os.getenv("SUPABASE_KEY", ""))
+    url = st.secrets.get("SUPABASE_URL", "")
+    key = st.secrets.get("SUPABASE_KEY", "")
     if not url or not key:
-        st.error("⚠️ SUPABASE_URL と SUPABASE_KEY を設定してください（.env または Streamlit Secrets）")
+        st.error("⚠️ Streamlit Cloud の Secrets に SUPABASE_URL と SUPABASE_KEY を設定してください")
         st.stop()
     return create_client(url, key)
 

@@ -14,11 +14,7 @@ build/
 venv/
 env/
 
-# 環境変数
-.env
-.env.local
-
-# Streamlit
+# Streamlit（シークレットはローカルに置く場合も絶対にコミットしない）
 .streamlit/secrets.toml
 
 # IDE
