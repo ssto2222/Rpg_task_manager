@@ -11,8 +11,10 @@ SUPABASE_KEY = "your-anon-key"
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 import random
 import uuid
+import json
 from supabase import create_client, Client
 
 # ─── ページ設定 ────────────────────────────────────────────
@@ -214,16 +216,78 @@ def stat_bar(val, cls, label):
     )
 
 
-def calc_monster_attack(monster: dict) -> tuple[int, str]:
-    """モンスターの反撃ダメージとメッセージを返す。タグに応じて挙動が変わる。"""
+def calc_monster_attack(monster: dict) -> tuple[int, str, bool]:
+    """モンスターの反撃ダメージ・メッセージ・バーストフラグを返す。タグに応じて挙動が変わる。"""
     base = random.randint(5, 12) + monster["agility"] // 15
     tags = monster.get("tags") or []
     if "Burst" in tags and random.random() < 0.3:
         dmg = int(base * 1.8)
-        return dmg, f"💥 バーストアタック！ {dmg} ダメージ！"
+        return dmg, f"💥 バーストアタック！ {dmg} ダメージ！", True
     if "Grind" in tags or "Endurance" in tags:
         base += monster["stamina"] // 20
-    return base, f"🗡️ 反撃！ {base} ダメージ！"
+    return base, f"🗡️ 反撃！ {base} ダメージ！", False
+
+
+def simulate_battle(monster: dict) -> tuple[list, str]:
+    """バトル全ターンを事前計算してシーケンスと結果("victory"/"defeat")を返す。
+
+    戦略: 最初の2ターンは通常攻撃でコンボを溜め、以降はクールダウン0のとき必殺技。
+    """
+    player_hp  = 100
+    monster_hp = monster["max_hp"]
+    combo      = 0
+    cooldown   = 0
+    turns: list = []
+
+    for turn_num in range(50):
+        # ─ プレイヤー行動 ─
+        use_special = (cooldown == 0 and turn_num >= 2)
+        if use_special:
+            crit  = random.random() < 0.20
+            base  = random.randint(25, 45) + monster["stamina"] // 5
+            dmg   = int(base * (2.0 if crit else 1.0))
+            combo = 0
+            cooldown = 3
+            msg = f"💥 CRITICAL! 🔥 {dmg} ダメージ！！" if crit else f"🔥 必殺技！ {dmg} ダメージ！！"
+            action = "special"
+        else:
+            new_combo  = min(combo + 1, 5)
+            combo_mult = 1.0 + new_combo * 0.15
+            crit       = random.random() < (0.20 + new_combo * 0.05)
+            base       = random.randint(8, 18) + monster["agility"] // 10
+            dmg        = int(base * combo_mult * (2.0 if crit else 1.0))
+            combo      = new_combo
+            if not use_special:
+                cooldown = max(0, cooldown - 1)
+            if crit:
+                msg = f"💥 CRITICAL! ⚔️ {dmg} ダメージ！（x{combo} COMBO）"
+            elif combo > 1:
+                msg = f"⚔️ {dmg} ダメージ！（x{combo} COMBO）"
+            else:
+                msg = f"⚔️ {dmg} ダメージ！"
+            action = "normal"
+
+        monster_hp = max(0, monster_hp - dmg)
+        turns.append({
+            "actor": "player", "action": action,
+            "damage": dmg, "is_crit": crit, "is_burst": False, "combo": combo,
+            "player_hp_after": player_hp, "monster_hp_after": monster_hp, "msg": msg,
+        })
+        if monster_hp <= 0:
+            return turns, "victory"
+
+        # ─ モンスター反撃 ─
+        c_dmg, c_msg, is_burst = calc_monster_attack(monster)
+        player_hp = max(0, player_hp - c_dmg)
+        turns.append({
+            "actor": "monster", "action": "counter",
+            "damage": c_dmg, "is_crit": False, "is_burst": is_burst, "combo": 0,
+            "player_hp_after": player_hp, "monster_hp_after": monster_hp, "msg": c_msg,
+        })
+        if player_hp <= 0:
+            return turns, "defeat"
+
+    return turns, "victory"  # タイムアウト → 勝利
 
 
 # ─── セッション初期化 ─────────────────────────────────────
@@ -233,8 +297,7 @@ for k, v in {
     "battle_hp": 0, "battle_log": [], "battle_phase": "idle",
     "switch_to_battle": False,
     "player_hp": 100, "player_max_hp": 100,
-    "skill_cooldown": 0,
-    "combo_count": 0,
+    "battle_sequence": [], "battle_outcome": None,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -288,7 +351,7 @@ with st.sidebar:
 # ─── バトル中はタブを出さずバトル画面を全面表示 ──────────
 
 _in_battle = (
-    st.session_state.battle_phase in ("fighting", "victory", "defeat")
+    st.session_state.battle_phase in ("animating", "victory", "defeat")
     and st.session_state.battle_monster_id
 )
 
@@ -302,122 +365,222 @@ if _in_battle:
         st.session_state.battle_phase = "idle"
         st.rerun()
     else:
-        current_hp   = st.session_state.battle_hp
-        max_hp       = monster["max_hp"]
-        player_hp    = st.session_state.player_hp
-        player_max   = st.session_state.player_max_hp
-        cooldown     = st.session_state.skill_cooldown
-        combo        = st.session_state.combo_count
-        tags         = monster.get("tags") or []
+        max_hp    = monster["max_hp"]
+        tags      = monster.get("tags") or []
 
-        if st.session_state.battle_phase == "fighting":
-            # ── HP表示（モンスター / プレイヤー）──────────────
-            cm2, ci = st.columns([1, 1])
-            with cm2:
-                combo_label = f'<span style="color:var(--gold);font-family:Cinzel,serif;font-size:13px;">x{combo} COMBO</span>' if combo > 0 else ""
-                st.markdown(f"""
-                <div class="parchment" style="text-align:center;padding:30px;">
-                    <div style="color:var(--gold);font-family:Cinzel,serif;font-size:13px;letter-spacing:3px;margin-bottom:16px;">— ENEMY —</div>
-                    <span class="monster-battle">{monster['emoji']}</span>
-                    <div style="color:var(--gold2);font-family:Cinzel,serif;font-size:18px;margin:12px 0;">{monster['name']}</div>
-                    <div style="color:{RARITY_COLOR[monster['rarity']]};font-family:Cinzel,serif;font-size:12px;margin-bottom:12px;">★ {monster['rarity']}</div>
-                    {hp_bar(current_hp, max_hp)}
-                    <hr style="border-color:var(--border);margin:16px 0 12px;">
-                    <div style="color:var(--gold);font-family:Cinzel,serif;font-size:13px;letter-spacing:3px;margin-bottom:8px;">— PLAYER —</div>
-                    {hp_bar(player_hp, player_max)}
-                    <div style="margin-top:8px;">{combo_label}</div>
-                </div>""", unsafe_allow_html=True)
-            with ci:
-                st.markdown(f"""
-                <div class="parchment">
-                    <div style="color:var(--gold);font-family:Cinzel,serif;font-size:13px;letter-spacing:2px;margin-bottom:12px;">📋 依頼内容</div>
-                    <div style="color:var(--text);font-size:15px;margin-bottom:8px;">{monster['task_name']}</div>
-                    <div style="color:var(--dim);font-size:12px;margin-bottom:16px;">⏱ {monster['minutes']}分</div>
-                    <div style="color:var(--gold);font-family:Cinzel,serif;font-size:11px;margin-bottom:8px;letter-spacing:2px;">CHEMISTRY</div>
-                    {tag_html(tags)}
-                    <hr style="border-color:var(--border);margin:12px 0;">
-                    {stat_bar(monster['agility'], 'agi-bar', '⚡ AGI')}
-                    {stat_bar(monster['stamina'], 'sta-bar', '💪 STA')}
-                </div>""", unsafe_allow_html=True)
+        if st.session_state.battle_phase == "animating":
+            seq_json = json.dumps(st.session_state.battle_sequence, ensure_ascii=False)
+            outcome  = st.session_state.battle_outcome or "victory"
+            m_emoji  = monster["emoji"]
+            m_name   = monster["name"]
+            m_color  = monster["color"]
 
-            st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
-            ba, bb, bc = st.columns(3)
+            battle_html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#0d0a06;font-family:Georgia,serif;color:#c9a84c;overflow:hidden}}
+.arena{{padding:12px;display:flex;flex-direction:column;gap:10px}}
+/* HP rows */
+.hp-row{{display:flex;gap:12px;align-items:flex-start}}
+.hp-block{{flex:1}}
+.hp-lbl{{font-size:11px;color:#7c6a4a;margin-bottom:3px;font-family:Georgia,serif}}
+.hp-wrap{{background:#1a0a0a;border:1px solid #5a1a1a;border-radius:3px;height:16px;overflow:hidden}}
+.hp-fill{{height:100%;background:linear-gradient(90deg,#8b0000,#e74c3c);border-radius:3px;transition:width 0.5s ease}}
+.hp-txt{{font-size:11px;color:#7c6a4a;text-align:right;margin-top:2px}}
+/* speed bar */
+.speed-row{{display:flex;align-items:center;gap:6px;font-size:11px;color:#7c6a4a}}
+.spd{{background:#1c1409;border:1px solid #5a3e10;color:#c9a84c;padding:2px 8px;cursor:pointer;
+      font-size:11px;border-radius:2px;font-family:Georgia,serif}}
+.spd.on{{background:#5a3e10;color:#f0d070}}
+/* scene */
+.scene{{display:flex;align-items:center;justify-content:space-around;
+        height:170px;background:linear-gradient(180deg,#060402 0%,#0d0a06 65%,#1a1206 100%);
+        border:1px solid #3d2a06;border-radius:4px;position:relative;overflow:hidden}}
+.scene::after{{content:'';position:absolute;bottom:28px;left:0;right:0;height:1px;
+               background:linear-gradient(90deg,transparent,#3d2a06 20%,#3d2a06 80%,transparent)}}
+.char{{text-align:center;position:relative;z-index:2;transition:transform 0.15s}}
+.em{{font-size:60px;display:block;filter:drop-shadow(0 4px 8px rgba(0,0,0,0.9))}}
+.cname{{font-size:10px;color:#7c6a4a;margin-top:3px}}
+.vs{{font-size:18px;color:#5a3e10;opacity:.8}}
+/* animations */
+@keyframes idle{{0%,100%{{transform:translateY(0)}}50%{{transform:translateY(-5px)}}}}
+@keyframes pAtk{{0%{{transform:translateX(0)}}40%{{transform:translateX(52px)}}75%{{transform:translateX(52px)}}100%{{transform:translateX(0)}}}}
+@keyframes pAtkBig{{0%{{transform:translateX(0) scale(1)}}40%{{transform:translateX(55px) scale(1.2)}}75%{{transform:translateX(55px) scale(1.2)}}100%{{transform:translateX(0) scale(1)}}}}
+@keyframes shake{{0%,100%{{transform:translateX(0)}}20%{{transform:translateX(9px)}}40%{{transform:translateX(-9px)}}60%{{transform:translateX(7px)}}80%{{transform:translateX(-5px)}}}}
+@keyframes mAtk{{0%{{transform:translateX(0)}}40%{{transform:translateX(-52px)}}75%{{transform:translateX(-52px)}}100%{{transform:translateX(0)}}}}
+@keyframes pShake{{0%,100%{{transform:translateX(0);opacity:1}}25%{{transform:translateX(-8px);opacity:.7}}75%{{transform:translateX(8px);opacity:.7}}}}
+@keyframes flash{{0%,100%{{opacity:1}}50%{{opacity:.1}}}}
+@keyframes dmgUp{{0%{{transform:translateY(0);opacity:1}}100%{{transform:translateY(-48px);opacity:0}}}}
+@keyframes fadeIn{{from{{opacity:0;transform:translateY(-3px)}}to{{opacity:1;transform:translateY(0)}}}}
+.idle{{animation:idle 2s ease-in-out infinite}}
+.dmg-pop{{position:absolute;font-weight:bold;pointer-events:none;z-index:20;
+           animation:dmgUp 0.9s ease-out forwards}}
+.dmg-p{{color:#e84040;top:35%;left:15%}}
+.dmg-m{{color:#f0d070;top:35%;right:15%}}
+.dmg-crit{{color:#ff8c00;font-size:22px}}
+/* log */
+.log{{background:#060402;border:1px solid #3d2a06;border-radius:3px;height:75px;
+      overflow-y:auto;padding:6px 8px}}
+.log-e{{font-size:11px;padding:2px 0;border-bottom:1px solid #1a1408;animation:fadeIn .25s ease}}
+.lp{{color:#c9a84c}}.lm{{color:#e07070}}.lc{{color:#ff8c00;font-weight:bold}}
+/* result overlay */
+.ov{{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;
+     justify-content:center;z-index:100;opacity:0;pointer-events:none;transition:opacity .6s}}
+.ov.show{{opacity:1;pointer-events:all}}
+.ov-box{{text-align:center}}
+.ov-icon{{font-size:72px;margin-bottom:10px}}
+.ov-title{{font-family:Georgia,serif;font-size:30px;letter-spacing:4px;color:#c9a84c}}
+.ov-title.def{{color:#e74c3c}}
+</style></head><body>
+<div class="arena">
+  <div class="hp-row">
+    <div class="hp-block">
+      <div class="hp-lbl">⚔️ プレイヤー</div>
+      <div class="hp-wrap"><div class="hp-fill" id="php" style="width:100%"></div></div>
+      <div class="hp-txt" id="ptxt">HP: 100 / 100</div>
+    </div>
+    <div class="hp-block">
+      <div class="hp-lbl" style="text-align:right">{m_emoji} {m_name}</div>
+      <div class="hp-wrap"><div class="hp-fill" id="mhp" style="width:100%"></div></div>
+      <div class="hp-txt" id="mtxt">HP: {max_hp} / {max_hp}</div>
+    </div>
+  </div>
+  <div class="speed-row">
+    <span>速度:</span>
+    <button class="spd on" id="s1" onclick="setSpd(1)">×1</button>
+    <button class="spd" id="s2" onclick="setSpd(2)">×2</button>
+    <button class="spd" id="s3" onclick="setSpd(3)">×3</button>
+  </div>
+  <div class="scene" id="scene">
+    <div class="char" id="pc">
+      <span class="em idle" id="pe">🧙</span>
+      <div class="cname">プレイヤー</div>
+    </div>
+    <div class="vs">⚡</div>
+    <div class="char" id="mc">
+      <span class="em idle" id="me" style="transform:scaleX(-1);display:inline-block">{m_emoji}</span>
+      <div class="cname">{m_name}</div>
+    </div>
+  </div>
+  <div class="log" id="log"></div>
+</div>
+<div class="ov" id="ov">
+  <div class="ov-box">
+    <div class="ov-icon" id="ov-icon"></div>
+    <div class="ov-title" id="ov-title"></div>
+  </div>
+</div>
+<script>
+const SEQ     = {seq_json};
+const OUTCOME = "{outcome}";
+const M_MAX   = {max_hp};
+const P_MAX   = 100;
+let spd = 1;
+const BASE_MS = 1400;
 
-            with ba:
-                if st.button("⚔️ 通常攻撃", use_container_width=True):
-                    # コンボ加算（上限5）
-                    new_combo = min(combo + 1, 5)
-                    combo_mult = 1.0 + new_combo * 0.15
-                    # クリティカル判定（基本20%+コンボ補正）
-                    crit_chance = 0.20 + new_combo * 0.05
-                    is_crit = random.random() < crit_chance
-                    base = random.randint(8, 18) + monster["agility"] // 10
-                    dmg = int(base * combo_mult * (2.0 if is_crit else 1.0))
-                    # ログ生成
-                    if is_crit:
-                        msg = f"💥 CRITICAL! ⚔️ {dmg} ダメージ！（x{new_combo} COMBO）"
-                    elif new_combo > 1:
-                        msg = f"⚔️ {dmg} ダメージ！（x{new_combo} COMBO +{int((combo_mult-1)*100)}%）"
-                    else:
-                        msg = f"⚔️ {dmg} ダメージ！"
-                    # モンスターHP更新
-                    new_mon_hp = max(0, current_hp - dmg)
-                    st.session_state.battle_hp    = new_mon_hp
-                    st.session_state.combo_count  = new_combo
-                    st.session_state.skill_cooldown = max(0, cooldown - 1)
-                    st.session_state.battle_log.append(msg)
-                    if new_mon_hp <= 0:
-                        st.session_state.battle_phase = "victory"
-                    else:
-                        # 反撃処理
-                        c_dmg, c_msg = calc_monster_attack(monster)
-                        new_player_hp = max(0, player_hp - c_dmg)
-                        st.session_state.player_hp = new_player_hp
-                        st.session_state.battle_log.append(c_msg)
-                        if new_player_hp <= 0:
-                            st.session_state.battle_phase = "defeat"
-                    st.rerun()
+function setSpd(n) {{
+  spd = n;
+  ['s1','s2','s3'].forEach((id,i) => document.getElementById(id).className = 'spd' + (i+1===n?' on':''));
+}}
 
-            with bb:
-                skill_label = f"🔥 必殺技（残{cooldown}T）" if cooldown > 0 else "🔥 必殺技"
-                if st.button(skill_label, use_container_width=True, disabled=(cooldown > 0)):
-                    # 必殺技はコンボリセット
-                    crit_chance = 0.20
-                    is_crit = random.random() < crit_chance
-                    base = random.randint(25, 45) + monster["stamina"] // 5
-                    dmg = int(base * (2.0 if is_crit else 1.0))
-                    msg = f"💥 CRITICAL! 🔥 {dmg} ダメージ！！" if is_crit else f"🔥 必殺！ {dmg} ダメージ！！"
-                    new_mon_hp = max(0, current_hp - dmg)
-                    st.session_state.battle_hp      = new_mon_hp
-                    st.session_state.skill_cooldown = 3
-                    st.session_state.combo_count    = 0
-                    st.session_state.battle_log.append(msg)
-                    if new_mon_hp <= 0:
-                        st.session_state.battle_phase = "victory"
-                    else:
-                        # 反撃処理
-                        c_dmg, c_msg = calc_monster_attack(monster)
-                        new_player_hp = max(0, player_hp - c_dmg)
-                        st.session_state.player_hp = new_player_hp
-                        st.session_state.battle_log.append(c_msg)
-                        if new_player_hp <= 0:
-                            st.session_state.battle_phase = "defeat"
-                    st.rerun()
+function updHp(who, hp) {{
+  if (who === 'p') {{
+    const pct = Math.max(0, Math.round(hp / P_MAX * 100));
+    document.getElementById('php').style.width = pct + '%';
+    document.getElementById('ptxt').textContent = 'HP: ' + hp + ' / ' + P_MAX;
+  }} else {{
+    const pct = Math.max(0, Math.round(hp / M_MAX * 100));
+    document.getElementById('mhp').style.width = pct + '%';
+    document.getElementById('mtxt').textContent = 'HP: ' + hp + ' / ' + M_MAX;
+  }}
+}}
 
-            with bc:
-                if st.button("🏳️ 撤退", use_container_width=True):
-                    st.session_state.battle_monster_id = None
-                    st.session_state.battle_phase      = "idle"
-                    st.session_state.combo_count       = 0
-                    st.session_state.skill_cooldown    = 0
-                    st.rerun()
+function popDmg(cls, val, special) {{
+  const sc = document.getElementById('scene');
+  const el = document.createElement('div');
+  el.className = 'dmg-pop ' + cls + (special ? ' dmg-crit' : '');
+  el.textContent = '-' + val + (special ? '!!' : '');
+  el.style.animationDuration = (0.9 / spd) + 's';
+  sc.appendChild(el);
+  setTimeout(() => el.remove(), 900 / spd);
+}}
 
-            if st.session_state.battle_log:
-                log_html = "".join(
-                    f'<div style="color:{"#f0d070" if "CRITICAL" in e else "#e07070" if "反撃" in e or "バースト" in e else "var(--dim)"};font-size:12px;padding:2px 0;border-bottom:1px solid #1a1408;">{e}</div>'
-                    for e in reversed(st.session_state.battle_log[-6:])
-                )
-                st.markdown(f'<div class="parchment" style="max-height:140px;overflow:auto;">{log_html}</div>', unsafe_allow_html=True)
+function addLog(msg, actor, special) {{
+  const log = document.getElementById('log');
+  const el  = document.createElement('div');
+  el.className = 'log-e ' + (special ? 'lc' : actor === 'player' ? 'lp' : 'lm');
+  el.textContent = msg;
+  log.insertBefore(el, log.firstChild);
+}}
+
+function animTurn(turn) {{
+  return new Promise(resolve => {{
+    const pe = document.getElementById('pe');
+    const me = document.getElementById('me');
+    pe.classList.remove('idle');
+    me.classList.remove('idle');
+    const dur = BASE_MS / spd;
+
+    if (turn.actor === 'player') {{
+      pe.style.animation = (turn.action === 'special'
+        ? 'pAtkBig ' : 'pAtk ') + (0.65 / spd) + 's ease forwards';
+      setTimeout(() => {{
+        me.style.animation = 'shake ' + (0.5 / spd) + 's ease';
+        if (turn.is_crit) {{
+          document.body.style.animation = 'flash ' + (0.25/spd) + 's ease 2';
+          setTimeout(() => document.body.style.animation = '', 500/spd);
+        }}
+        popDmg('dmg-m', turn.damage, turn.is_crit);
+        updHp('m', turn.monster_hp_after);
+      }}, 420 / spd);
+    }} else {{
+      me.style.animation = 'mAtk ' + (0.65 / spd) + 's ease forwards';
+      setTimeout(() => {{
+        pe.style.animation = 'pShake ' + (0.5 / spd) + 's ease';
+        if (turn.is_burst) {{
+          document.body.style.animation = 'flash ' + (0.2/spd) + 's ease 2';
+          setTimeout(() => document.body.style.animation = '', 400/spd);
+        }}
+        popDmg('dmg-p', turn.damage, turn.is_burst);
+        updHp('p', turn.player_hp_after);
+      }}, 420 / spd);
+    }}
+
+    setTimeout(() => addLog(turn.msg, turn.actor, turn.is_crit || turn.is_burst), 180 / spd);
+
+    setTimeout(() => {{
+      pe.style.animation = '';
+      me.style.animation = '';
+      pe.classList.add('idle');
+      me.classList.add('idle');
+      resolve();
+    }}, dur * 0.85);
+  }});
+}}
+
+async function play() {{
+  for (const t of SEQ) {{
+    await animTurn(t);
+    await new Promise(r => setTimeout(r, BASE_MS * 0.15 / spd));
+  }}
+  // show result overlay
+  const ov = document.getElementById('ov');
+  document.getElementById('ov-icon').textContent  = OUTCOME === 'victory' ? '🏆' : '💀';
+  const title = document.getElementById('ov-title');
+  title.textContent = OUTCOME === 'victory' ? 'VICTORY!' : 'DEFEAT';
+  if (OUTCOME === 'defeat') title.classList.add('def');
+  ov.classList.add('show');
+}}
+
+setTimeout(play, 400);
+</script></body></html>"""
+
+            components.html(battle_html, height=490, scrolling=False)
+            st.markdown('<div style="height:6px;"></div>', unsafe_allow_html=True)
+            if st.button("⏭ スキップ / 結果を確認する", use_container_width=True):
+                st.session_state.battle_phase = st.session_state.battle_outcome or "victory"
+                st.rerun()
 
         elif st.session_state.battle_phase == "victory":
             st.markdown(f"""
@@ -550,15 +713,16 @@ else:
                     </div>""", unsafe_allow_html=True)
                 with cb2:
                     if st.button("⚔️ バトル開始", key=f"go_{task['id']}"):
+                        turns, outcome = simulate_battle(monster)
                         st.session_state.battle_monster_id = str(monster["id"])
                         st.session_state.battle_task_id    = str(task["id"])
                         st.session_state.battle_hp         = monster["max_hp"]
                         st.session_state.battle_log        = []
-                        st.session_state.battle_phase      = "fighting"
+                        st.session_state.battle_phase      = "animating"
                         st.session_state.player_hp         = 100
                         st.session_state.player_max_hp     = 100
-                        st.session_state.skill_cooldown    = 0
-                        st.session_state.combo_count       = 0
+                        st.session_state.battle_sequence   = turns
+                        st.session_state.battle_outcome    = outcome
                         st.rerun()
                 st.markdown('<hr style="border-color:#1a1408;margin:4px 0;">', unsafe_allow_html=True)
 
