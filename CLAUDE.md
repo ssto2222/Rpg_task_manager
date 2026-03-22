@@ -1,132 +1,132 @@
-# CLAUDE.md — RPG Task Manager
+# CLAUDE.md — RPG タスクマネージャー
 
-This file provides guidance for AI assistants (Claude and others) working on this repository.
-
----
-
-## Project Overview
-
-**RPG Task Manager** is a gamified task management application that applies RPG (role-playing game) mechanics to productivity. Users gain experience points (XP), level up, complete quests (tasks), and manage a character/party as they accomplish real-world goals.
-
-This repository is in its **initial state** — no source code has been committed yet. This document should be updated as the codebase grows.
+このファイルは、このリポジトリで作業するAIアシスタント（Claudeなど）向けのガイドです。
 
 ---
 
-## Repository Status
+## プロジェクト概要
 
-- **Current state**: Empty repository, initial setup phase
-- **Branch**: `claude/add-claude-documentation-wLgsM`
-- **Remote**: `http://local_proxy@127.0.0.1:32885/git/ssto2222/Rpg_task_manager`
+**RPG タスクマネージャー**は、RPG（ロールプレイングゲーム）のメカニクスを生産性管理に応用したゲーミフィケーションタスク管理アプリです。ユーザーはタスクを完了することで経験値（XP）を獲得し、レベルアップし、クエスト（目標）を達成しながらキャラクターを成長させます。
+
+このリポジトリは**初期状態**です — ソースコードはまだコミットされていません。コードベースが成長するにつれ、このドキュメントを更新してください。
 
 ---
 
-## Intended Architecture (To Be Confirmed)
+## リポジトリの現状
 
-The following is the anticipated structure based on the project name. Update this section once the technology stack is decided and scaffolded.
+- **現在の状態**: 空のリポジトリ、初期セットアップ段階
+- **ブランチ**: `claude/add-claude-documentation-wLgsM`
+- **リモート**: `http://local_proxy@127.0.0.1:32885/git/ssto2222/Rpg_task_manager`
+
+---
+
+## 想定アーキテクチャ（確定次第更新）
+
+技術スタックが決定・スキャフォールドされたら、このセクションを更新してください。
 
 ```
 Rpg_task_manager/
-├── CLAUDE.md              # This file
-├── README.md              # Project overview for humans
+├── CLAUDE.md              # このファイル
+├── README.md              # 人間向けプロジェクト概要
 ├── .gitignore
-├── src/                   # Main application source
-│   ├── models/            # Data models (Task, Character, Quest, etc.)
-│   ├── services/          # Business logic layer
-│   ├── controllers/       # Request handlers / route controllers
-│   ├── views/             # UI templates or frontend components
-│   └── utils/             # Shared utilities and helpers
-├── tests/                 # Test suite
+├── src/                   # メインアプリケーションソース
+│   ├── models/            # データモデル（Task, Character, Quest など）
+│   ├── services/          # ビジネスロジック層
+│   ├── controllers/       # リクエストハンドラー / ルートコントローラー
+│   ├── views/             # UIテンプレートまたはフロントエンドコンポーネント
+│   └── utils/             # 共有ユーティリティとヘルパー
+├── tests/                 # テストスイート
 │   ├── unit/
 │   └── integration/
-├── docs/                  # Additional documentation
-└── config/                # Configuration files
+├── docs/                  # 追加ドキュメント
+└── config/                # 設定ファイル
 ```
 
 ---
 
-## Development Workflow
+## 開発ワークフロー
 
-### Branching Strategy
+### ブランチ戦略
 
-- `main` — stable, production-ready code; never commit directly
-- `develop` — integration branch; merge feature branches here
-- `feature/<description>` — new features
-- `fix/<description>` — bug fixes
-- `claude/<description>` — branches for AI-assisted work
+- `main` — 安定版・本番用コード。直接コミット禁止
+- `develop` — 統合ブランチ。フィーチャーブランチはここにマージ
+- `feature/<説明>` — 新機能
+- `fix/<説明>` — バグ修正
+- `claude/<説明>` — AIアシスタントによる作業用ブランチ
 
-### Commit Convention
+### コミット規約
 
-Use [Conventional Commits](https://www.conventionalcommits.org/):
+[Conventional Commits](https://www.conventionalcommits.org/) に従う:
 
 ```
-<type>(<scope>): <short description>
+<タイプ>(<スコープ>): <短い説明>
 
-[optional body]
+[任意の本文]
 ```
 
-Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
+タイプ: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
 
-Examples:
+例:
 ```
-feat(quests): add XP reward calculation on task completion
-fix(character): correct level-up threshold off-by-one error
-docs: update CLAUDE.md with API conventions
-test(tasks): add unit tests for task priority sorting
+feat(quests): タスク完了時のXP報酬計算を追加
+fix(character): レベルアップ閾値のオフバイワンエラーを修正
+docs: APIの規約をCLAUDE.mdに追記
+test(tasks): タスク優先度ソートのユニットテストを追加
 ```
 
-### Making Changes
+### 変更の手順
 
-1. Create a feature branch from `develop` (or `main` if no `develop` exists yet)
-2. Make focused, small commits
-3. Ensure tests pass before pushing
-4. Open a pull request with a clear description
+1. `develop`（または `main`）からフィーチャーブランチを作成
+2. 小さく集中したコミットを重ねる
+3. プッシュ前にテストが通ることを確認
+4. 明確な説明とともにプルリクエストを作成
 
 ---
 
-## Key Domain Concepts
+## ドメインの主要概念
 
-Understanding these concepts is essential for working on this codebase:
+このコードベースを扱う上で、以下の概念の理解が不可欠です:
 
-| Concept | Description |
-|---------|-------------|
-| **Task** | A real-world to-do item the user needs to complete |
-| **Quest** | A collection of related tasks forming a larger goal |
-| **XP (Experience Points)** | Reward for completing tasks; drives leveling |
-| **Level** | Character progression milestone based on accumulated XP |
-| **Character** | The user's in-app avatar with stats, level, and inventory |
-| **Party** | Group of characters (useful for team/collaborative features) |
-| **Skill** | Special abilities unlocked through completing task categories |
-| **Inventory** | Items earned as rewards for completing quests/tasks |
+| 概念 | 説明 |
+|------|------|
+| **タスク (Task)** | ユーザーが完了すべき現実世界のTo-Doアイテム |
+| **クエスト (Quest)** | より大きな目標を形成する関連タスクの集合 |
+| **XP（経験値）** | タスク完了の報酬。レベルアップに使用 |
+| **レベル (Level)** | 蓄積XPに基づくキャラクター成長のマイルストーン |
+| **キャラクター (Character)** | ステータス・レベル・インベントリを持つユーザーのアバター |
+| **パーティ (Party)** | キャラクターのグループ（チーム・協力機能向け） |
+| **スキル (Skill)** | タスクカテゴリの達成によってアンロックされる特殊能力 |
+| **インベントリ (Inventory)** | クエスト・タスク完了の報酬として獲得したアイテム |
 
 ---
 
-## Coding Conventions
+## コーディング規約
 
-These conventions should be followed once the stack is chosen. Update this section with language/framework-specific rules.
+スタックが決まり次第、言語・フレームワーク固有のルールでこのセクションを更新してください。
 
-### General
+### 一般ルール
 
-- Keep functions small and single-purpose
-- Prefer explicit over implicit behavior
-- Write code that reads like prose where possible
-- Avoid premature optimization; favor clarity
+- 関数は小さく、単一の責務に留める
+- 暗黙的な挙動より明示的な挙動を優先
+- コードはできる限り散文のように読めるよう書く
+- 早すぎる最適化を避け、明瞭さを優先する
 
-### Naming
+### 命名規則
 
-- **Variables/Functions**: `camelCase` (JS/TS) or `snake_case` (Python)
-- **Classes/Types**: `PascalCase`
-- **Constants**: `UPPER_SNAKE_CASE`
-- **Files**: `kebab-case` for components/modules, `PascalCase` for class files
+- **変数・関数**: `camelCase`（JS/TS）または `snake_case`（Python）
+- **クラス・型**: `PascalCase`
+- **定数**: `UPPER_SNAKE_CASE`
+- **ファイル名**: コンポーネント・モジュールは `kebab-case`、クラスファイルは `PascalCase`
 
-### Domain Naming Examples
+### ドメイン命名の例
 
 ```
-// Good — domain language is clear
+// 良い例 — ドメイン言語が明確
 calculateXpReward(task)
 levelUpCharacter(character, xp)
 completeQuest(questId)
 
-// Avoid — too generic
+// 避けるべき例 — 汎用的すぎる
 processItem(item)
 update(data)
 handle(input)
@@ -134,80 +134,80 @@ handle(input)
 
 ---
 
-## Testing
+## テスト
 
-- Write tests for all business logic (XP calculation, leveling thresholds, quest completion)
-- Test file should mirror source file location:
+- すべてのビジネスロジックにテストを書く（XP計算、レベルアップ閾値、クエスト完了など）
+- テストファイルはソースファイルの場所を反映させる:
   - `src/services/xp-service.js` → `tests/unit/services/xp-service.test.js`
-- Use descriptive test names following `should <behavior> when <condition>` pattern:
+- テスト名は `<条件>のとき<振る舞い>すべき` のパターンで記述:
   ```
-  "should award 50 XP when a high-priority task is completed"
-  "should not level up when XP is below threshold"
+  "高優先度タスク完了時に50XPを付与すべき"
+  "XPが閾値未満のときレベルアップしないべき"
   ```
 
 ---
 
-## Environment Setup
+## 環境セットアップ
 
-> **Note**: Update this section once the stack is chosen.
+> **注意**: スタックが決まり次第このセクションを更新してください。
 
-Typical setup steps expected for this project:
+想定される標準的なセットアップ手順:
 
 ```bash
-# Clone the repository
+# リポジトリをクローン
 git clone <repo-url>
 cd Rpg_task_manager
 
-# Install dependencies (Node.js example)
+# 依存関係をインストール（Node.jsの例）
 npm install
-# or for Python:
+# Pythonの場合:
 pip install -r requirements.txt
 
-# Copy environment config
+# 環境設定をコピー
 cp .env.example .env
 
-# Run development server
+# 開発サーバーを起動
 npm run dev
 
-# Run tests
+# テストを実行
 npm test
 ```
 
 ---
 
-## For AI Assistants
+## AIアシスタントへのガイドライン
 
-When working on this repository:
+このリポジトリで作業する際:
 
-1. **Read this file first** before making any changes
-2. **Update this file** when you introduce new patterns, conventions, or significant structure
-3. **Prefer editing existing files** over creating new ones unless structure demands it
-4. **Keep changes focused** — implement only what is requested
-5. **Check for existing patterns** before introducing new abstractions
-6. **Domain vocabulary matters** — use the RPG terminology defined above consistently
-7. **Never commit secrets** — `.env` files, API keys, credentials must never be committed
-8. **Run tests before pushing** — do not push code with failing tests
+1. **変更前に必ずこのファイルを読む**
+2. **新しいパターンや規約、重要な構造変更を導入した際はこのファイルを更新する**
+3. **新規ファイル作成より既存ファイルの編集を優先する**
+4. **変更は要求されたことに集中する** — 依頼外の実装はしない
+5. **新しい抽象化を導入する前に既存パターンを確認する**
+6. **ドメイン用語を一貫して使う** — 上記で定義したRPG用語を使用すること
+7. **シークレットは絶対にコミットしない** — `.env`ファイル、APIキー、認証情報は厳禁
+8. **プッシュ前にテストを実行する** — テストが失敗した状態でプッシュしない
 
-### Common Tasks for AI
+### AIがよく行うタスク
 
-- Adding a new task type: check `src/models/` for existing model patterns
-- Adding XP logic: business logic lives in `src/services/`
-- Adding API endpoints: follow controller patterns in `src/controllers/`
-- Adding UI components: check existing component structure in `src/views/`
-
----
-
-## Questions / Unknowns
-
-These should be resolved before significant development begins:
-
-- [ ] What is the primary technology stack? (Node.js/React, Python/Django, etc.)
-- [ ] Is this a web app, CLI tool, mobile app, or desktop app?
-- [ ] Is there a database? If so, which one (PostgreSQL, SQLite, MongoDB)?
-- [ ] Is there a REST API, GraphQL API, or is it a monolith?
-- [ ] Are there multiplayer/social features planned?
-- [ ] What is the deployment target (cloud, self-hosted, local-only)?
+- 新しいタスクタイプの追加: `src/models/` で既存モデルのパターンを確認
+- XPロジックの追加: ビジネスロジックは `src/services/` に配置
+- APIエンドポイントの追加: `src/controllers/` のコントローラーパターンに従う
+- UIコンポーネントの追加: `src/views/` の既存コンポーネント構造を確認
 
 ---
 
-*Last updated: 2026-03-22 — Initial CLAUDE.md created for empty repository.*
+## 未解決の課題
+
+本格的な開発開始前に決定が必要な事項:
+
+- [ ] 主要技術スタックは何か？（Node.js/React、Python/Djangoなど）
+- [ ] Webアプリ、CLIツール、モバイルアプリ、デスクトップアプリのどれか？
+- [ ] データベースを使用するか？使用する場合はどれか（PostgreSQL、SQLite、MongoDBなど）
+- [ ] REST API、GraphQL API、またはモノリス構成か？
+- [ ] マルチプレイヤー・ソーシャル機能は計画されているか？
+- [ ] デプロイ先はどこか（クラウド、セルフホスト、ローカルのみ）？
+
+---
+
+*最終更新: 2026-03-22 — 空のリポジトリ向けに初期CLAUDE.mdを作成。*
