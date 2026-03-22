@@ -218,6 +218,7 @@ def stat_bar(val, cls, label):
 for k, v in {
     "battle_monster_id": None, "battle_task_id": None,
     "battle_hp": 0, "battle_log": [], "battle_phase": "idle",
+    "switch_to_battle": False,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -271,6 +272,17 @@ with st.sidebar:
 # ─── メインタブ ───────────────────────────────────────────
 
 tab1, tab2, tab3, tab4 = st.tabs(["📜 依頼書", "⚔️ バトル", "📚 図鑑", "🎮 パーティ"])
+
+if st.session_state.switch_to_battle:
+    st.session_state.switch_to_battle = False
+    st.markdown("""
+    <script>
+    (function() {
+        var tabs = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
+        if (tabs.length > 1) { tabs[1].click(); }
+    })();
+    </script>
+    """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════
 # TAB 1 — ギルドの依頼書
@@ -352,6 +364,7 @@ with tab1:
                     st.session_state.battle_hp         = monster["max_hp"]
                     st.session_state.battle_log        = []
                     st.session_state.battle_phase      = "fighting"
+                    st.session_state.switch_to_battle  = True
                     st.rerun()
             st.markdown('<hr style="border-color:#1a1408;margin:4px 0;">', unsafe_allow_html=True)
 
