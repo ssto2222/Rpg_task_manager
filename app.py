@@ -269,306 +269,305 @@ with st.sidebar:
         invalidate_cache()
         st.rerun()
 
-# ─── メインタブ ───────────────────────────────────────────
+# ─── バトル中はタブを出さずバトル画面を全面表示 ──────────
 
-tab1, tab2, tab3, tab4 = st.tabs(["📜 依頼書", "⚔️ バトル", "📚 図鑑", "🎮 パーティ"])
+_in_battle = (
+    st.session_state.battle_phase in ("fighting", "victory")
+    and st.session_state.battle_monster_id
+)
 
-if st.session_state.switch_to_battle:
-    st.session_state.switch_to_battle = False
-    st.markdown("""
-    <script>
-    (function() {
-        var tabs = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
-        if (tabs.length > 1) { tabs[1].click(); }
-    })();
-    </script>
-    """, unsafe_allow_html=True)
-
-# ══════════════════════════════════════════════
-# TAB 1 — ギルドの依頼書
-# ══════════════════════════════════════════════
-
-with tab1:
-    st.markdown("""
-    <div class="parchment" style="max-width:600px;margin:0 auto;">
-        <div style="font-size:40px;text-align:center;filter:drop-shadow(0 0 8px rgba(201,168,76,0.6));">🏰</div>
-        <div style="font-family:'Cinzel',serif;color:var(--gold);font-size:22px;text-align:center;
-            letter-spacing:4px;border-bottom:1px solid var(--border);padding-bottom:10px;margin-bottom:16px;">
-            ギルドの依頼書</div>
-        <p style="text-align:center;color:var(--dim);font-style:italic;font-size:13px;">
-            依頼を受理すると、対応するモンスターが出現する。</p>
-    </div>""", unsafe_allow_html=True)
-
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        task_name = st.text_input("📋 依頼内容（タスク名）", placeholder="例: 企画書を書く")
-    with col2:
-        task_minutes = st.number_input("⏱ 予定時間（分）", min_value=5, max_value=480, value=30, step=5)
-
-    ca, cb = st.columns(2)
-    with ca:
-        priority = st.selectbox("優先度", ["🔴 緊急", "🟡 通常", "🟢 余裕"])
-    with cb:
-        category = st.selectbox("カテゴリ", ["💼 仕事", "📚 勉強", "🏃 運動", "🏠 家事", "🎯 趣味"])
-
-    if st.button("⚔️ 依頼を受理してモンスターを召喚", use_container_width=True):
-        if task_name.strip():
-            with st.spinner("モンスターを召喚中…"):
-                mdata = generate_monster_data(task_name.strip(), task_minutes)
-                saved = db_insert_monster(mdata)
-                monster_id = saved.get("id", mdata["id"])
-                db_insert_task({
-                    "name": task_name.strip(), "minutes": task_minutes,
-                    "priority": priority, "category": category,
-                    "monster_id": monster_id, "done": False,
-                })
-                invalidate_cache()
-            st.success(f"✨ {mdata['name']} が出現した！（Supabaseに保存済み）")
-            st.markdown(f"""
-            <div class="parchment" style="max-width:400px;margin:10px auto;text-align:center;">
-                <span style="font-size:72px;display:block;filter:drop-shadow(0 0 15px {mdata['color']});">{mdata['emoji']}</span>
-                <div style="color:var(--gold);font-family:Cinzel,serif;font-size:18px;margin:8px 0;">{mdata['name']}</div>
-                <div style="color:{RARITY_COLOR[mdata['rarity']]};font-family:Cinzel,serif;margin-bottom:12px;">★ {mdata['rarity']}</div>
-                {stat_bar(mdata['agility'], 'agi-bar', '⚡ AGI')}
-                {stat_bar(mdata['stamina'], 'sta-bar', '💪 STA')}
-                <div style="margin-top:10px;">{tag_html(mdata['tags'])}</div>
-            </div>""", unsafe_allow_html=True)
-            st.rerun()
-        else:
-            st.warning("依頼内容を入力してください。")
-
-    st.markdown('<hr style="border-color:var(--border);margin:20px 0;">', unsafe_allow_html=True)
-    st.markdown("### 📋 受理中の依頼")
-
-    if not pending_tasks:
-        st.markdown('<p style="color:var(--dim);text-align:center;padding:20px;">受理中の依頼はない。</p>', unsafe_allow_html=True)
+if _in_battle:
+    # ══════════════════════════════════════════════
+    # バトル画面（タブなしで全面表示）
+    # ══════════════════════════════════════════════
+    monster = next((m for m in monsters if str(m["id"]) == st.session_state.battle_monster_id), None)
+    if not monster:
+        st.warning("モンスターが見つかりません。")
+        st.session_state.battle_phase = "idle"
+        st.rerun()
     else:
-        for task in pending_tasks:
-            monster = next((m for m in monsters if str(m["id"]) == str(task.get("monster_id", ""))), None)
-            if not monster:
-                continue
-            cm, ct, cb2 = st.columns([1, 4, 1])
-            with cm:
-                st.markdown(f'<span style="font-size:36px;">{monster["emoji"]}</span>', unsafe_allow_html=True)
-            with ct:
+        current_hp = st.session_state.battle_hp
+        max_hp     = monster["max_hp"]
+        tags       = monster.get("tags") or []
+
+        if st.session_state.battle_phase == "fighting":
+            cm2, ci = st.columns([1, 1])
+            with cm2:
                 st.markdown(f"""
-                <div style="padding:6px 0;">
-                    <div style="color:var(--gold2);font-family:Cinzel,serif;font-size:14px;">{task['name']}</div>
-                    <div style="color:var(--dim);font-size:12px;">{task.get('priority', '—')} | {task.get('category', '—')} | ⏱ {task['minutes']}分</div>
-                    <div style="color:{RARITY_COLOR[monster['rarity']]};font-size:11px;font-family:Cinzel,serif;">{monster['name']} — ★{monster['rarity']}</div>
+                <div class="parchment" style="text-align:center;padding:30px;">
+                    <div style="color:var(--gold);font-family:Cinzel,serif;font-size:13px;letter-spacing:3px;margin-bottom:16px;">— ENEMY —</div>
+                    <span class="monster-battle">{monster['emoji']}</span>
+                    <div style="color:var(--gold2);font-family:Cinzel,serif;font-size:18px;margin:12px 0;">{monster['name']}</div>
+                    <div style="color:{RARITY_COLOR[monster['rarity']]};font-family:Cinzel,serif;font-size:12px;margin-bottom:12px;">★ {monster['rarity']}</div>
+                    {hp_bar(current_hp, max_hp)}
                 </div>""", unsafe_allow_html=True)
-            with cb2:
-                if st.button("⚔️", key=f"go_{task['id']}", help="バトル開始"):
-                    st.session_state.battle_monster_id = str(monster["id"])
-                    st.session_state.battle_task_id    = str(task["id"])
-                    st.session_state.battle_hp         = monster["max_hp"]
-                    st.session_state.battle_log        = []
-                    st.session_state.battle_phase      = "fighting"
-                    st.session_state.switch_to_battle  = True
+            with ci:
+                st.markdown(f"""
+                <div class="parchment">
+                    <div style="color:var(--gold);font-family:Cinzel,serif;font-size:13px;letter-spacing:2px;margin-bottom:12px;">📋 依頼内容</div>
+                    <div style="color:var(--text);font-size:15px;margin-bottom:8px;">{monster['task_name']}</div>
+                    <div style="color:var(--dim);font-size:12px;margin-bottom:16px;">⏱ {monster['minutes']}分</div>
+                    <div style="color:var(--gold);font-family:Cinzel,serif;font-size:11px;margin-bottom:8px;letter-spacing:2px;">CHEMISTRY</div>
+                    {tag_html(tags)}
+                    <hr style="border-color:var(--border);margin:12px 0;">
+                    {stat_bar(monster['agility'], 'agi-bar', '⚡ AGI')}
+                    {stat_bar(monster['stamina'], 'sta-bar', '💪 STA')}
+                </div>""", unsafe_allow_html=True)
+
+            st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
+            ba, bb, bc = st.columns(3)
+            with ba:
+                if st.button("⚔️ 通常攻撃", use_container_width=True):
+                    dmg = random.randint(8, 18) + monster["agility"] // 10
+                    st.session_state.battle_hp = max(0, current_hp - dmg)
+                    st.session_state.battle_log.append(f"⚔️ {dmg} ダメージ！")
+                    if st.session_state.battle_hp <= 0:
+                        st.session_state.battle_phase = "victory"
                     st.rerun()
-            st.markdown('<hr style="border-color:#1a1408;margin:4px 0;">', unsafe_allow_html=True)
+            with bb:
+                if st.button("🔥 必殺技", use_container_width=True):
+                    dmg = random.randint(25, 45) + monster["stamina"] // 5
+                    st.session_state.battle_hp = max(0, current_hp - dmg)
+                    st.session_state.battle_log.append(f"🔥 必殺！ {dmg} ダメージ！！")
+                    if st.session_state.battle_hp <= 0:
+                        st.session_state.battle_phase = "victory"
+                    st.rerun()
+            with bc:
+                if st.button("🏳️ 撤退", use_container_width=True):
+                    st.session_state.battle_monster_id = None
+                    st.session_state.battle_phase = "idle"
+                    st.rerun()
 
-# ══════════════════════════════════════════════
-# TAB 2 — バトル
-# ══════════════════════════════════════════════
+            if st.session_state.battle_log:
+                log_html = "".join(
+                    f'<div style="color:var(--dim);font-size:12px;padding:2px 0;border-bottom:1px solid #1a1408;">{e}</div>'
+                    for e in reversed(st.session_state.battle_log[-5:])
+                )
+                st.markdown(f'<div class="parchment" style="max-height:120px;overflow:auto;">{log_html}</div>', unsafe_allow_html=True)
 
-with tab2:
-    if st.session_state.battle_phase == "idle" or not st.session_state.battle_monster_id:
-        st.markdown("""
-        <div style="text-align:center;padding:60px 20px;color:var(--dim);">
-            <div style="font-size:64px;margin-bottom:20px;">🗡️</div>
-            <div style="font-family:Cinzel,serif;font-size:16px;color:var(--gold);margin-bottom:8px;">戦場は静まり返っている</div>
-            <div style="font-size:13px;">「依頼書」タブでモンスターを召喚してバトルを開始せよ。</div>
-        </div>""", unsafe_allow_html=True)
-    else:
-        monster = next((m for m in monsters if str(m["id"]) == st.session_state.battle_monster_id), None)
-        if not monster:
-            st.warning("モンスターが見つかりません。")
-        else:
-            current_hp = st.session_state.battle_hp
-            max_hp     = monster["max_hp"]
-            tags       = monster.get("tags") or []
+        elif st.session_state.battle_phase == "victory":
+            st.markdown(f"""
+            <div class="victory-banner">
+                <div style="font-size:72px;margin-bottom:12px;">🏆</div>
+                <div style="font-family:Cinzel,serif;font-size:28px;color:var(--gold);letter-spacing:4px;margin-bottom:8px;">VICTORY!</div>
+                <div style="font-size:15px;color:var(--text);margin-bottom:20px;">
+                    <strong style="color:var(--gold2);">{monster['name']}</strong> を討伐した！
+                </div>
+                <div style="font-size:60px;margin:10px 0;filter:drop-shadow(0 0 20px {monster['color']});">{monster['emoji']}</div>
+            </div>""", unsafe_allow_html=True)
 
-            if st.session_state.battle_phase == "fighting":
-                cm2, ci = st.columns([1, 1])
-                with cm2:
-                    st.markdown(f"""
-                    <div class="parchment" style="text-align:center;padding:30px;">
-                        <div style="color:var(--gold);font-family:Cinzel,serif;font-size:13px;letter-spacing:3px;margin-bottom:16px;">— ENEMY —</div>
-                        <span class="monster-battle">{monster['emoji']}</span>
-                        <div style="color:var(--gold2);font-family:Cinzel,serif;font-size:18px;margin:12px 0;">{monster['name']}</div>
-                        <div style="color:{RARITY_COLOR[monster['rarity']]};font-family:Cinzel,serif;font-size:12px;margin-bottom:12px;">★ {monster['rarity']}</div>
-                        {hp_bar(current_hp, max_hp)}
-                    </div>""", unsafe_allow_html=True)
-                with ci:
-                    st.markdown(f"""
-                    <div class="parchment">
-                        <div style="color:var(--gold);font-family:Cinzel,serif;font-size:13px;letter-spacing:2px;margin-bottom:12px;">📋 依頼内容</div>
-                        <div style="color:var(--text);font-size:15px;margin-bottom:8px;">{monster['task_name']}</div>
-                        <div style="color:var(--dim);font-size:12px;margin-bottom:16px;">⏱ {monster['minutes']}分</div>
-                        <div style="color:var(--gold);font-family:Cinzel,serif;font-size:11px;margin-bottom:8px;letter-spacing:2px;">CHEMISTRY</div>
-                        {tag_html(tags)}
-                        <hr style="border-color:var(--border);margin:12px 0;">
-                        {stat_bar(monster['agility'], 'agi-bar', '⚡ AGI')}
-                        {stat_bar(monster['stamina'], 'sta-bar', '💪 STA')}
-                    </div>""", unsafe_allow_html=True)
-
-                st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
-                ba, bb, bc = st.columns(3)
-                with ba:
-                    if st.button("⚔️ 通常攻撃", use_container_width=True):
-                        dmg = random.randint(8, 18) + monster["agility"] // 10
-                        st.session_state.battle_hp = max(0, current_hp - dmg)
-                        st.session_state.battle_log.append(f"⚔️ {dmg} ダメージ！")
-                        if st.session_state.battle_hp <= 0:
-                            st.session_state.battle_phase = "victory"
-                        st.rerun()
-                with bb:
-                    if st.button("🔥 必殺技", use_container_width=True):
-                        dmg = random.randint(25, 45) + monster["stamina"] // 5
-                        st.session_state.battle_hp = max(0, current_hp - dmg)
-                        st.session_state.battle_log.append(f"🔥 必殺！ {dmg} ダメージ！！")
-                        if st.session_state.battle_hp <= 0:
-                            st.session_state.battle_phase = "victory"
-                        st.rerun()
-                with bc:
-                    if st.button("🏳️ 撤退", use_container_width=True):
-                        st.session_state.battle_monster_id = None
-                        st.session_state.battle_phase = "idle"
-                        st.rerun()
-
-                if st.session_state.battle_log:
-                    log_html = "".join(
-                        f'<div style="color:var(--dim);font-size:12px;padding:2px 0;border-bottom:1px solid #1a1408;">{e}</div>'
-                        for e in reversed(st.session_state.battle_log[-5:])
-                    )
-                    st.markdown(f'<div class="parchment" style="max-height:120px;overflow:auto;">{log_html}</div>', unsafe_allow_html=True)
-
-            elif st.session_state.battle_phase == "victory":
-                st.markdown(f"""
-                <div class="victory-banner">
-                    <div style="font-size:72px;margin-bottom:12px;">🏆</div>
-                    <div style="font-family:Cinzel,serif;font-size:28px;color:var(--gold);letter-spacing:4px;margin-bottom:8px;">VICTORY!</div>
-                    <div style="font-size:15px;color:var(--text);margin-bottom:20px;">
-                        <strong style="color:var(--gold2);">{monster['name']}</strong> を討伐した！
-                    </div>
-                    <div style="font-size:60px;margin:10px 0;filter:drop-shadow(0 0 20px {monster['color']});">{monster['emoji']}</div>
-                </div>""", unsafe_allow_html=True)
-
-                cx, cy = st.columns(2)
-                with cx:
-                    if st.button("✨ パーティに加える", use_container_width=True):
-                        if len(party_mons) < 3:
-                            db_mark_monster_defeated(monster["id"])
-                            db_set_party(monster["id"], True)
-                            if st.session_state.battle_task_id:
-                                db_mark_task_done(st.session_state.battle_task_id)
-                            invalidate_cache()
-                            st.session_state.battle_monster_id = None
-                            st.session_state.battle_phase = "idle"
-                            st.rerun()
-                        else:
-                            st.warning("パーティは最大3体まで。先にメンバーを外してください。")
-                with cy:
-                    if st.button("📚 図鑑に登録のみ", use_container_width=True):
+            cx, cy = st.columns(2)
+            with cx:
+                if st.button("✨ パーティに加える", use_container_width=True):
+                    if len(party_mons) < 3:
                         db_mark_monster_defeated(monster["id"])
+                        db_set_party(monster["id"], True)
                         if st.session_state.battle_task_id:
                             db_mark_task_done(st.session_state.battle_task_id)
                         invalidate_cache()
                         st.session_state.battle_monster_id = None
                         st.session_state.battle_phase = "idle"
                         st.rerun()
-
-# ══════════════════════════════════════════════
-# TAB 3 — 図鑑
-# ══════════════════════════════════════════════
-
-with tab3:
-    st.markdown("### 📚 モンスター図鑑")
-    st.markdown(f'<p style="color:var(--dim);font-size:13px;">討伐数: {len(defeated_mons)} 体 <span class="db-badge">🗄️ Supabase</span></p>', unsafe_allow_html=True)
-
-    if not defeated_mons:
-        st.markdown("""
-        <div style="text-align:center;padding:40px;color:var(--dim);">
-            <div style="font-size:48px;margin-bottom:16px;">📖</div>
-            <div style="font-family:Cinzel,serif;">図鑑はまだ空白のページだ</div>
-        </div>""", unsafe_allow_html=True)
-    else:
-        rarity_filter = st.multiselect("レアリティ絞り込み", ["C", "B", "A", "S"], default=["C", "B", "A", "S"])
-        filtered = [m for m in defeated_mons if m["rarity"] in rarity_filter]
-        cols = st.columns(4)
-        for idx, m in enumerate(filtered):
-            captured = (m.get("captured_at") or "")[:10]
-            with cols[idx % 4]:
-                st.markdown(f"""
-                <div class="monster-card">
-                    <span class="monster-sprite">{m['emoji']}</span>
-                    <div style="color:var(--gold2);font-family:Cinzel,serif;font-size:12px;margin:8px 0 4px;">{m['name']}</div>
-                    <div style="color:{RARITY_COLOR[m['rarity']]};font-size:11px;font-family:Cinzel,serif;">★ {m['rarity']}</div>
-                    <div style="color:var(--dim);font-size:10px;margin-top:4px;">{captured}</div>
-                    {tag_html(m.get('tags') or [])}
-                </div>""", unsafe_allow_html=True)
-
-# ══════════════════════════════════════════════
-# TAB 4 — パーティ管理
-# ══════════════════════════════════════════════
-
-with tab4:
-    st.markdown("### 🎮 パーティ編成")
-    st.markdown(f'<p style="color:var(--dim);font-size:13px;">最大3体 <span class="db-badge">🗄️ Supabase</span></p>', unsafe_allow_html=True)
-
-    if not party_mons:
-        st.markdown("""
-        <div style="text-align:center;padding:40px;color:var(--dim);">
-            <div style="font-size:48px;margin-bottom:16px;">🛡️</div>
-            <div style="font-family:Cinzel,serif;">パーティに仲間がいない</div>
-        </div>""", unsafe_allow_html=True)
-    else:
-        p_cols = st.columns(3)
-        for i, m in enumerate(party_mons):
-            tags = m.get("tags") or []
-            with p_cols[i]:
-                st.markdown(f"""
-                <div class="parchment" style="text-align:center;">
-                    <div style="color:var(--dim);font-family:Cinzel,serif;font-size:10px;letter-spacing:2px;margin-bottom:8px;">SLOT {i+1}</div>
-                    <span style="font-size:56px;display:block;filter:drop-shadow(0 0 12px {m['color']});">{m['emoji']}</span>
-                    <div style="color:var(--gold2);font-family:Cinzel,serif;font-size:14px;margin:10px 0 4px;">{m['name']}</div>
-                    <div style="color:{RARITY_COLOR[m['rarity']]};font-size:11px;margin-bottom:10px;">★ {m['rarity']}</div>
-                    {stat_bar(m['agility'], 'agi-bar', '⚡ AGI')}
-                    {stat_bar(m['stamina'], 'sta-bar', '💪 STA')}
-                    <div style="margin-top:10px;">{tag_html(tags)}</div>
-                </div>""", unsafe_allow_html=True)
-                if st.button("外す", key=f"remove_{m['id']}", use_container_width=True):
-                    db_set_party(m["id"], False)
+                    else:
+                        st.warning("パーティは最大3体まで。先にメンバーを外してください。")
+            with cy:
+                if st.button("📚 図鑑に登録のみ", use_container_width=True):
+                    db_mark_monster_defeated(monster["id"])
+                    if st.session_state.battle_task_id:
+                        db_mark_task_done(st.session_state.battle_task_id)
                     invalidate_cache()
+                    st.session_state.battle_monster_id = None
+                    st.session_state.battle_phase = "idle"
                     st.rerun()
 
-        total_agi = sum(m["agility"] for m in party_mons)
-        total_sta = sum(m["stamina"] for m in party_mons)
-        st.markdown('<hr style="border-color:var(--border);margin:20px 0;">', unsafe_allow_html=True)
-        st.markdown(f"""
-        <div class="parchment" style="text-align:center;">
-            <div style="color:var(--gold);font-family:Cinzel,serif;font-size:14px;letter-spacing:3px;margin-bottom:12px;">PARTY STATUS</div>
-            <div style="display:flex;justify-content:center;gap:40px;">
-                <div>
-                    <div style="color:var(--dim);font-size:11px;font-family:Cinzel,serif;">⚡ TOTAL AGI</div>
-                    <div style="color:#2471a3;font-family:Cinzel,serif;font-size:28px;font-weight:700;">{total_agi}</div>
-                </div>
-                <div>
-                    <div style="color:var(--dim);font-size:11px;font-family:Cinzel,serif;">💪 TOTAL STA</div>
-                    <div style="color:#27ae60;font-family:Cinzel,serif;font-size:28px;font-weight:700;">{total_sta}</div>
-                </div>
-            </div>
-            <div style="color:var(--dim);font-size:11px;margin-top:12px;font-style:italic;">🔒 AIケミストリー診断はプレミアム限定</div>
+else:
+    tab1, tab2, tab3, tab4 = st.tabs(["📜 依頼書", "⚔️ バトル", "📚 図鑑", "🎮 パーティ"])
+
+    # ══════════════════════════════════════════════
+    # TAB 1 — ギルドの依頼書
+    # ══════════════════════════════════════════════
+
+    with tab1:
+        st.markdown("""
+        <div class="parchment" style="max-width:600px;margin:0 auto;">
+            <div style="font-size:40px;text-align:center;filter:drop-shadow(0 0 8px rgba(201,168,76,0.6));">🏰</div>
+            <div style="font-family:'Cinzel',serif;color:var(--gold);font-size:22px;text-align:center;
+                letter-spacing:4px;border-bottom:1px solid var(--border);padding-bottom:10px;margin-bottom:16px;">
+                ギルドの依頼書</div>
+            <p style="text-align:center;color:var(--dim);font-style:italic;font-size:13px;">
+                依頼を受理すると、対応するモンスターが出現する。</p>
         </div>""", unsafe_allow_html=True)
 
-    addable = [m for m in defeated_mons if not m["in_party"]]
-    if addable and len(party_mons) < 3:
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            task_name = st.text_input("📋 依頼内容（タスク名）", placeholder="例: 企画書を書く")
+        with col2:
+            task_minutes = st.number_input("⏱ 予定時間（分）", min_value=5, max_value=480, value=30, step=5)
+
+        ca, cb = st.columns(2)
+        with ca:
+            priority = st.selectbox("優先度", ["🔴 緊急", "🟡 通常", "🟢 余裕"])
+        with cb:
+            category = st.selectbox("カテゴリ", ["💼 仕事", "📚 勉強", "🏃 運動", "🏠 家事", "🎯 趣味"])
+
+        if st.button("⚔️ 依頼を受理してモンスターを召喚", use_container_width=True):
+            if task_name.strip():
+                with st.spinner("モンスターを召喚中…"):
+                    mdata = generate_monster_data(task_name.strip(), task_minutes)
+                    saved = db_insert_monster(mdata)
+                    monster_id = saved.get("id", mdata["id"])
+                    db_insert_task({
+                        "name": task_name.strip(), "minutes": task_minutes,
+                        "priority": priority, "category": category,
+                        "monster_id": monster_id, "done": False,
+                    })
+                    invalidate_cache()
+                st.success(f"✨ {mdata['name']} が出現した！（Supabaseに保存済み）")
+                st.markdown(f"""
+                <div class="parchment" style="max-width:400px;margin:10px auto;text-align:center;">
+                    <span style="font-size:72px;display:block;filter:drop-shadow(0 0 15px {mdata['color']});">{mdata['emoji']}</span>
+                    <div style="color:var(--gold);font-family:Cinzel,serif;font-size:18px;margin:8px 0;">{mdata['name']}</div>
+                    <div style="color:{RARITY_COLOR[mdata['rarity']]};font-family:Cinzel,serif;margin-bottom:12px;">★ {mdata['rarity']}</div>
+                    {stat_bar(mdata['agility'], 'agi-bar', '⚡ AGI')}
+                    {stat_bar(mdata['stamina'], 'sta-bar', '💪 STA')}
+                    <div style="margin-top:10px;">{tag_html(mdata['tags'])}</div>
+                </div>""", unsafe_allow_html=True)
+                st.rerun()
+            else:
+                st.warning("依頼内容を入力してください。")
+
         st.markdown('<hr style="border-color:var(--border);margin:20px 0;">', unsafe_allow_html=True)
-        st.markdown("#### 📚 図鑑から編成")
-        options = {f"{m['emoji']} {m['name']} (★{m['rarity']})": m for m in addable}
-        chosen  = st.selectbox("パーティに追加するモンスター", list(options.keys()))
-        if st.button("➕ パーティに追加", use_container_width=True):
-            db_set_party(options[chosen]["id"], True)
-            invalidate_cache()
-            st.rerun()
+        st.markdown("### 📋 受理中の依頼")
+
+        if not pending_tasks:
+            st.markdown('<p style="color:var(--dim);text-align:center;padding:20px;">受理中の依頼はない。</p>', unsafe_allow_html=True)
+        else:
+            for task in pending_tasks:
+                monster = next((m for m in monsters if str(m["id"]) == str(task.get("monster_id", ""))), None)
+                if not monster:
+                    continue
+                cm, ct, cb2 = st.columns([1, 4, 1])
+                with cm:
+                    st.markdown(f'<span style="font-size:36px;">{monster["emoji"]}</span>', unsafe_allow_html=True)
+                with ct:
+                    st.markdown(f"""
+                    <div style="padding:6px 0;">
+                        <div style="color:var(--gold2);font-family:Cinzel,serif;font-size:14px;">{task['name']}</div>
+                        <div style="color:var(--dim);font-size:12px;">{task.get('priority', '—')} | {task.get('category', '—')} | ⏱ {task['minutes']}分</div>
+                        <div style="color:{RARITY_COLOR[monster['rarity']]};font-size:11px;font-family:Cinzel,serif;">{monster['name']} — ★{monster['rarity']}</div>
+                    </div>""", unsafe_allow_html=True)
+                with cb2:
+                    if st.button("⚔️ バトル開始", key=f"go_{task['id']}"):
+                        st.session_state.battle_monster_id = str(monster["id"])
+                        st.session_state.battle_task_id    = str(task["id"])
+                        st.session_state.battle_hp         = monster["max_hp"]
+                        st.session_state.battle_log        = []
+                        st.session_state.battle_phase      = "fighting"
+                        st.rerun()
+                st.markdown('<hr style="border-color:#1a1408;margin:4px 0;">', unsafe_allow_html=True)
+
+    # ══════════════════════════════════════════════
+    # TAB 2 — バトル（待機中）
+    # ══════════════════════════════════════════════
+
+    with tab2:
+        st.markdown("""
+        <div style="text-align:center;padding:60px 20px;color:var(--dim);">
+            <div style="font-size:64px;margin-bottom:20px;">🗡️</div>
+            <div style="font-family:Cinzel,serif;font-size:16px;color:var(--gold);margin-bottom:8px;">戦場は静まり返っている</div>
+            <div style="font-size:13px;">「依頼書」タブでモンスターを選び「⚔️ バトル開始」を押せ。</div>
+        </div>""", unsafe_allow_html=True)
+
+    # ══════════════════════════════════════════════
+    # TAB 3 — 図鑑
+    # ══════════════════════════════════════════════
+
+    with tab3:
+        st.markdown("### 📚 モンスター図鑑")
+        st.markdown(f'<p style="color:var(--dim);font-size:13px;">討伐数: {len(defeated_mons)} 体 <span class="db-badge">🗄️ Supabase</span></p>', unsafe_allow_html=True)
+
+        if not defeated_mons:
+            st.markdown("""
+            <div style="text-align:center;padding:40px;color:var(--dim);">
+                <div style="font-size:48px;margin-bottom:16px;">📖</div>
+                <div style="font-family:Cinzel,serif;">図鑑はまだ空白のページだ</div>
+            </div>""", unsafe_allow_html=True)
+        else:
+            rarity_filter = st.multiselect("レアリティ絞り込み", ["C", "B", "A", "S"], default=["C", "B", "A", "S"])
+            filtered = [m for m in defeated_mons if m["rarity"] in rarity_filter]
+            cols = st.columns(4)
+            for idx, m in enumerate(filtered):
+                captured = (m.get("captured_at") or "")[:10]
+                with cols[idx % 4]:
+                    st.markdown(f"""
+                    <div class="monster-card">
+                        <span class="monster-sprite">{m['emoji']}</span>
+                        <div style="color:var(--gold2);font-family:Cinzel,serif;font-size:12px;margin:8px 0 4px;">{m['name']}</div>
+                        <div style="color:{RARITY_COLOR[m['rarity']]};font-size:11px;font-family:Cinzel,serif;">★ {m['rarity']}</div>
+                        <div style="color:var(--dim);font-size:10px;margin-top:4px;">{captured}</div>
+                        {tag_html(m.get('tags') or [])}
+                    </div>""", unsafe_allow_html=True)
+
+    # ══════════════════════════════════════════════
+    # TAB 4 — パーティ管理
+    # ══════════════════════════════════════════════
+
+    with tab4:
+        st.markdown("### 🎮 パーティ編成")
+        st.markdown(f'<p style="color:var(--dim);font-size:13px;">最大3体 <span class="db-badge">🗄️ Supabase</span></p>', unsafe_allow_html=True)
+
+        if not party_mons:
+            st.markdown("""
+            <div style="text-align:center;padding:40px;color:var(--dim);">
+                <div style="font-size:48px;margin-bottom:16px;">🛡️</div>
+                <div style="font-family:Cinzel,serif;">パーティに仲間がいない</div>
+            </div>""", unsafe_allow_html=True)
+        else:
+            p_cols = st.columns(3)
+            for i, m in enumerate(party_mons):
+                tags = m.get("tags") or []
+                with p_cols[i]:
+                    st.markdown(f"""
+                    <div class="parchment" style="text-align:center;">
+                        <div style="color:var(--dim);font-family:Cinzel,serif;font-size:10px;letter-spacing:2px;margin-bottom:8px;">SLOT {i+1}</div>
+                        <span style="font-size:56px;display:block;filter:drop-shadow(0 0 12px {m['color']});">{m['emoji']}</span>
+                        <div style="color:var(--gold2);font-family:Cinzel,serif;font-size:14px;margin:10px 0 4px;">{m['name']}</div>
+                        <div style="color:{RARITY_COLOR[m['rarity']]};font-size:11px;margin-bottom:10px;">★ {m['rarity']}</div>
+                        {stat_bar(m['agility'], 'agi-bar', '⚡ AGI')}
+                        {stat_bar(m['stamina'], 'sta-bar', '💪 STA')}
+                        <div style="margin-top:10px;">{tag_html(tags)}</div>
+                    </div>""", unsafe_allow_html=True)
+                    if st.button("外す", key=f"remove_{m['id']}", use_container_width=True):
+                        db_set_party(m["id"], False)
+                        invalidate_cache()
+                        st.rerun()
+
+            total_agi = sum(m["agility"] for m in party_mons)
+            total_sta = sum(m["stamina"] for m in party_mons)
+            st.markdown('<hr style="border-color:var(--border);margin:20px 0;">', unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="parchment" style="text-align:center;">
+                <div style="color:var(--gold);font-family:Cinzel,serif;font-size:14px;letter-spacing:3px;margin-bottom:12px;">PARTY STATUS</div>
+                <div style="display:flex;justify-content:center;gap:40px;">
+                    <div>
+                        <div style="color:var(--dim);font-size:11px;font-family:Cinzel,serif;">⚡ TOTAL AGI</div>
+                        <div style="color:#2471a3;font-family:Cinzel,serif;font-size:28px;font-weight:700;">{total_agi}</div>
+                    </div>
+                    <div>
+                        <div style="color:var(--dim);font-size:11px;font-family:Cinzel,serif;">💪 TOTAL STA</div>
+                        <div style="color:#27ae60;font-family:Cinzel,serif;font-size:28px;font-weight:700;">{total_sta}</div>
+                    </div>
+                </div>
+                <div style="color:var(--dim);font-size:11px;margin-top:12px;font-style:italic;">🔒 AIケミストリー診断はプレミアム限定</div>
+            </div>""", unsafe_allow_html=True)
+
+        addable = [m for m in defeated_mons if not m["in_party"]]
+        if addable and len(party_mons) < 3:
+            st.markdown('<hr style="border-color:var(--border);margin:20px 0;">', unsafe_allow_html=True)
+            st.markdown("#### 📚 図鑑から編成")
+            options = {f"{m['emoji']} {m['name']} (★{m['rarity']})": m for m in addable}
+            chosen  = st.selectbox("パーティに追加するモンスター", list(options.keys()))
+            if st.button("➕ パーティに追加", use_container_width=True):
+                db_set_party(options[chosen]["id"], True)
+                invalidate_cache()
+                st.rerun()
